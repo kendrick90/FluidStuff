@@ -21,6 +21,10 @@ import controlP5.Toggle;
 import processing.core.*;
 import processing.opengl.PGraphics2D;
 
+import spout.*;
+PImage img; // Image to receive a texture
+Spout sender;
+
 
 // This example shows a very basic fluid simulation setup. 
 // Multiple emitters add velocity/temperature/density each iteration.
@@ -60,69 +64,63 @@ private class MyFluidData implements DwFluid2D.FluidData {
     //temperature = animator * 20f;
     //fluid.addTemperature(px, py, radius, temperature);
 
-    // add impulse: density - grey
-    px = width/2f;
-    py = height;
-    radius = 50.0f;
-    r = g = b = 64/255f;
-    intensity = 1.0f;
-    fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
+    // add impulse: density - black
+    if (keyz[0]) {
+      px = width/2f;
+      py = height;
+      radius = 50.0f;
+      r = g = b = 0.0f;
+      intensity = 1.0f;
+      fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
+      vx=0f;
+      vy=-100f;
+      fluid.addVelocity(px, py, radius, vx, vy);
+    }
 
     // add impulse: density - red
-    px = width;
-    py = height/2;
-    radius = 50.0f;
-    r = 1.0f;
-    g = 0.0f;
-    b = 0.0f;
-    intensity = 1.0f;
-    fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
-
-    // add impulse: density - green
-    px = width/2f;
-    py = 0.0f;
-    radius = 50.0f;
-    r = 0.0f;
-    g = 1.0f;
-    b = 0.0f;
-    intensity = 1.0f;
-    fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
-
-    // add impulse: density - blue
-    px = 0.0f;
-    py = height/2;
-    radius = 50.0f;
-    r = 0.0f;
-    g = 0.0f;
-    b = 1.0f;
-    intensity = 1.0f;
-    fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
-
     if (keyz[3]) {
       px = width;
       py = height/2;
       radius = 50.0f;
+      r = 1.0f;
+      g = 0.0f;
+      b = 0.0f;
+      intensity = 2.0f;
+      fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
       vx=-100f;
       vy=0f;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
-    if (keyz[1]) {
-      px = 0.0f;
-      py = height/2;
-      radius = 50.0f;
-      vx=100f;
-      vy=0f;
-      fluid.addVelocity(px, py, radius, vx, vy);
-    }
+
+    // add impulse: density - green
     if (keyz[2]) {
       px = width/2f;
       py = 0.0f;
       radius = 50.0f;
+      r = 0.0f;
+      g = 1.0f;
+      b = 0.0f;
+      intensity = 1.0f;
+      fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
       vx=0f;
       vy=100f;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
 
+    // add impulse: density - blue
+    if (keyz[1]) {
+      px = 0.0f;
+      py = height/2;
+      radius = 50.0f;
+      r = 0.0f;
+      g = 0.0f;
+      b = 1.0f;
+      intensity = 1.0f;
+      fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
+      vx=100f;
+      vy=0f;
+      fluid.addVelocity(px, py, radius, vx, vy);
+    }
 
     boolean mouse_input = !cp5.isMouseOver() && mousePressed && !obstacle_painter.isDrawing();
 
@@ -135,7 +133,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
       vx     = (mouseX - pmouseX) * +vscale;
       vy     = (mouseY - pmouseY) * -vscale;
 
-      fluid.addDensity(px, py, radius, 0.75f, 0.75f, 0.75f, 1.0f);
+      //fluid.addDensity(px, py, radius, 0.75f, 0.75f, 0.75f, 1.0f);
       fluid.addVelocity(px, py, radius, vx, vy);
     }
   }
@@ -182,10 +180,13 @@ public void setup() {
   fluid = new DwFluid2D(context, viewport_w, viewport_h, fluidgrid_scale);
 
   // set some simulation parameters
-  fluid.param.dissipation_density     = 0.999f;
-  fluid.param.dissipation_velocity    = 0.99f;
-  fluid.param.dissipation_temperature = 0.80f;
-  fluid.param.vorticity               = 0.10f;
+  fluid.param.dissipation_density     = 1.0f;
+  fluid.param.dissipation_velocity    = 1.0f;
+  fluid.param.dissipation_temperature = 1.0f;
+  fluid.param.vorticity               = 1.0f;
+  fluid.param.num_jacobi_projection   = 80;
+  fluid.param.timestep                = 1.0f;
+  fluid.param.gridscale               = 1.00f;
 
   // interface for adding data to the fluid simulation
   MyFluidData cb_fluid_data = new MyFluidData();
@@ -217,6 +218,9 @@ public void setup() {
   createGUI();
 
   frameRate(60);
+  img = createImage(width, height, ARGB);
+  sender = new Spout(this);
+  sender.createSender("FluidRSOut");
 }
 
 
@@ -256,6 +260,8 @@ public void draw() {
   // info
   String txt_fps = String.format(getClass().getName()+ "   [size %d/%d]   [frame %d]   [fps %6.2f]", fluid.fluid_w, fluid.fluid_h, fluid.simulation_step, frameRate);
   surface.setTitle(txt_fps);
+
+  sender.sendTexture();
 }
 
 
@@ -295,7 +301,7 @@ public void fluid_displayVelocityVectors(int val) {
 }
 
 void keyPressed() {
-  if (key == 'h')  keyz[0] = true;
+  if (key == 'i')  keyz[0] = true;
   if (key == 'j')  keyz[1] = true;
   if (key == 'k')  keyz[2] = true;
   if (key == 'l')  keyz[3] = true;
@@ -314,7 +320,7 @@ public void keyReleased() {
 
   if (key == 'q') DISPLAY_FLUID_TEXTURES = !DISPLAY_FLUID_TEXTURES;
   if (key == 'w') DISPLAY_FLUID_VECTORS  = !DISPLAY_FLUID_VECTORS;
-  if (key == 'h')  keyz[0] = false;
+  if (key == 'i')  keyz[0] = false;
   if (key == 'j')  keyz[1] = false;
   if (key == 'k')  keyz[2] = false;
   if (key == 'l')  keyz[3] = false;
