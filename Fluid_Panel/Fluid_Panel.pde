@@ -11,7 +11,10 @@
 
 
 import com.thomasdiewald.pixelflow.java.DwPixelFlow;
+import com.thomasdiewald.pixelflow.java.dwgl.DwGLTexture;
 import com.thomasdiewald.pixelflow.java.fluid.DwFluid2D;
+import com.thomasdiewald.pixelflow.java.fluid.DwFluidParticleSystem2D;
+import com.thomasdiewald.pixelflow.java.imageprocessing.filter.DwFilter;
 
 import controlP5.Accordion;
 import controlP5.ControlP5;
@@ -24,6 +27,8 @@ import processing.opengl.PGraphics2D;
 import spout.*;
 PImage img; // Image to receive a texture
 Spout sender;
+Spout receiver;
+
 
 
 // This example shows a very basic fluid simulation setup. 
@@ -50,7 +55,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
     float px, py, vx, vy, radius, vscale, r, g, b, intensity, temperature;
 
     //// add impulse: density + temperature - red
-    //float animator = sin(fluid.simulation_step*0.01f);
+    float animator = sin(fluid.simulation_step*0.1f);
 
     //intensity = 1.0f;
     //px = 2*width/3f;
@@ -72,7 +77,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
       r = g = b = 0.0f;
       intensity = 1.0f;
       fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
-      vx=0f;
+      vx=(animator+0.5)*90;
       vy=-100f;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
@@ -88,7 +93,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
       intensity = 2.0f;
       fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
       vx=-100f;
-      vy=0f;
+      vy=(animator+0.2)*90;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
 
@@ -102,7 +107,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
       b = 0.0f;
       intensity = 1.0f;
       fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
-      vx=0f;
+      vx=(animator+0.1)*90;
       vy=100f;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
@@ -118,7 +123,7 @@ private class MyFluidData implements DwFluid2D.FluidData {
       intensity = 1.0f;
       fluid.addDensity(px, py, radius, r, g, b, intensity, 3);
       vx=100f;
-      vy=0f;
+      vy=(animator+0.0)*90;
       fluid.addVelocity(px, py, radius, vx, vy);
     }
 
@@ -136,23 +141,47 @@ private class MyFluidData implements DwFluid2D.FluidData {
       //fluid.addDensity(px, py, radius, 0.75f, 0.75f, 0.75f, 1.0f);
       fluid.addVelocity(px, py, radius, vx, vy);
     }
+
+    // ADD DENSITY FROM TEXTURE:
+    // pg_image              ... contains our current density input
+    // fluid.tex_density.dst ... density render target
+    // fluid.tex_density.src ... density from previous fluid update step
+
+    // mix value
+    float mix = (fluid.simulation_step == 0) ? 1.0f : 0.01f;
+
+    // copy pg_density_input to temporary fluid texture
+    DwFilter.get(context).copy.apply(pg_density_input, fluid.tex_density.dst);
+
+    // mix both textures
+    DwGLTexture[] tex = {fluid.tex_density.src, fluid.tex_density.dst};
+    float[]       mad = {1f-mix, 0f, mix, 0f};
+    DwFilter.get(context).merge.apply(fluid.tex_density.dst, tex, mad);
+
+    // swap, dst becomes src, src is used as input for the next fluid update step
+    fluid.tex_density.swap();
   }
 }
 
 
-int viewport_w = 800;
-int viewport_h = 800;
+int viewport_w = 1080;
+int viewport_h = 1080;
 int fluidgrid_scale = 1;
 
 int gui_w = 200;
 int gui_x = 20;
 int gui_y = 20;
 
+DwPixelFlow context;
+
 DwFluid2D fluid;
+
 ObstaclePainter obstacle_painter;
 
 // render targets
-PGraphics2D pg_fluid;
+PGraphics2D pg_fluid;         // primary fluid render target
+PGraphics2D pg_density_input; // texture buffer for adding density
+
 //texture-buffer, for adding obstacles
 PGraphics2D pg_obstacles;
 
@@ -172,7 +201,7 @@ boolean keyz[] = new boolean [4];
 public void setup() {
 
   // main library context
-  DwPixelFlow context = new DwPixelFlow(this);
+  context = new DwPixelFlow(this);
   context.print();
   context.printGL();
 
@@ -199,6 +228,14 @@ public void setup() {
   pg_fluid.background(BACKGROUND_COLOR);
   pg_fluid.endDraw();
 
+
+  // image/buffer that will be used as density input
+  pg_density_input = (PGraphics2D) createGraphics(viewport_w, viewport_h, P2D);
+  pg_density_input.smooth(0);
+  pg_density_input.beginDraw();
+  pg_density_input.clear();
+  pg_density_input.endDraw();
+
   // pgraphics for obstacles
   pg_obstacles = (PGraphics2D) createGraphics(viewport_w, viewport_h, P2D);
   pg_obstacles.smooth(0);
@@ -217,15 +254,19 @@ public void setup() {
 
   createGUI();
 
-  frameRate(60);
+  // spout
+  receiver = new Spout(this);
+  receiver.createReceiver("FluidRSIn");
   img = createImage(width, height, ARGB);
   sender = new Spout(this);
   sender.createSender("FluidRSOut");
+  frameRate(60);
 }
 
 
 
 public void draw() {    
+  receiver.receiveTexture(pg_density_input);
 
   // update simulation
   if (UPDATE_FLUID) {
@@ -320,10 +361,13 @@ public void keyReleased() {
 
   if (key == 'q') DISPLAY_FLUID_TEXTURES = !DISPLAY_FLUID_TEXTURES;
   if (key == 'w') DISPLAY_FLUID_VECTORS  = !DISPLAY_FLUID_VECTORS;
+
   if (key == 'i')  keyz[0] = false;
   if (key == 'j')  keyz[1] = false;
   if (key == 'k')  keyz[2] = false;
   if (key == 'l')  keyz[3] = false;
+
+  if (key == 's') receiver.selectSender();
 }
 
 ControlP5 cp5;
